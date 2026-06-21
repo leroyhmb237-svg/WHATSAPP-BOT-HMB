@@ -15,7 +15,7 @@ services:
 
       # ⚠️ IMPORTANT FIX: Render FS volatile
       - key: AUTH_PATH
-        value: /opt/render/project/src/auth
+        value: ./auth_info_baileys
 
       - key: MAX_DAILY_MESSAGES
         value: "100"

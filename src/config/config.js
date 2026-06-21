@@ -1,17 +1,17 @@
 require('dotenv').config();
 
 function toBool(value, fallback = false) {
-    if (value === undefined) return fallback;
+    if (value === undefined || value === null) return fallback;
     return value === 'true';
 }
 
 function toInt(value, fallback) {
-    const n = parseInt(value);
+    const n = parseInt(value, 10);
     return isNaN(n) ? fallback : n;
 }
 
 const config = {
-    port: process.env.PORT || 3000,
+    port: toInt(process.env.PORT, 3000),
 
     telegram: {
         botToken: process.env.TELEGRAM_BOT_TOKEN || '',
@@ -19,7 +19,9 @@ const config = {
     },
 
     auth: {
-        path: process.env.AUTH_PATH || './auth'
+        // IMPORTANT FIX: Render ne garde pas les fichiers locaux longtemps
+        // mais Baileys a besoin d'un dossier persistant
+        path: process.env.AUTH_PATH || './auth_info_baileys'
     },
 
     limits: {

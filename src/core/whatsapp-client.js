@@ -7,6 +7,7 @@ const {
 const { Boom } = require('@hapi/boom');
 const Pino = require('pino');
 const QRCode = require('qrcode');
+const fs = require('fs');
 
 const config = require('../config/config');
 const Logger = require('../utils/logger');
@@ -44,15 +45,24 @@ class WhatsAppClient {
         this.initializing = true;
 
         try {
-            // 🔥 CLEAN OLD SOCKET BEFORE RECREATE
             await this.cleanupSocket();
 
-            const { state, saveCreds } = await useMultiFileAuthState(config.auth.path);
+            // 🔥 FIX IMPORTANT: créer dossier auth si absent
+            if (!fs.existsSync(config.auth.path)) {
+                fs.mkdirSync(config.auth.path, { recursive: true });
+            }
+
+            const { state, saveCreds } =
+                await useMultiFileAuthState(config.auth.path);
 
             this.sock = makeWASocket({
                 auth: state,
                 logger: Pino({ level: 'silent' }),
-                browser: ['Chrome', 'Linux', '1.0'],
+
+                // 🔥 FIX stabilité WhatsApp Web
+                browser: ['Ubuntu', 'Chrome', '22.0.0'],
+                markOnlineOnConnect: true,
+                syncFullHistory: false,
                 printQRInTerminal: false
             });
 
@@ -79,15 +89,11 @@ class WhatsAppClient {
         }
     }
 
-    // 🔥 CLEAN SOCKET PROPRE (IMPORTANT FIX)
     async cleanupSocket() {
         try {
             if (this.sock) {
-                this.sock.ev.removeAllListeners();
-
-                // fermeture websocket propre
+                this.sock.ev?.removeAllListeners?.();
                 this.sock.ws?.close?.();
-
                 this.sock = null;
             }
         } catch (e) {
@@ -98,14 +104,12 @@ class WhatsAppClient {
     async handleConnection(update) {
         const { connection, lastDisconnect, qr } = update;
 
-        // QR CODE
         if (qr) {
             const img = await QRCode.toDataURL(qr);
             this.io?.emit('qr', img);
             logger.info('QR généré');
         }
 
-        // CONNECTÉ
         if (connection === 'open') {
             this.connected = true;
             this.attempts = 0;
@@ -117,7 +121,6 @@ class WhatsAppClient {
             this.io?.emit('connected');
         }
 
-        // FERMÉ
         if (connection === 'close') {
             this.connected = false;
 
@@ -132,12 +135,12 @@ class WhatsAppClient {
             logger.error(`WhatsApp fermé | code=${statusCode}`);
             logger.error(`Cause: ${errorMessage}`);
 
+            await this.cleanupSocket();
+
             const shouldReconnect =
                 statusCode !== DisconnectReason.loggedOut &&
                 this.attempts < 5 &&
                 !this.lockReconnect;
-
-            await this.cleanupSocket();
 
             if (!shouldReconnect) {
                 logger.error('Reconnexion stoppée (loggedOut ou limite atteinte)');
@@ -179,7 +182,6 @@ class WhatsAppClient {
 
     async sendMessage(jid, text) {
         if (!this.connected || !this.sock) return;
-
         if (!AntiDetect.canPerformAction()) return;
 
         await AntiDetect.beforeReply();

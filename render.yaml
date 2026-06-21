@@ -13,9 +13,9 @@ services:
       - key: NODE_ENV
         value: production
 
-      # ⚠️ IMPORTANT FIX: Render FS volatile
+      # ✅ FIX IMPORTANT (DOIT MATCHER TON CODE)
       - key: AUTH_PATH
-        value: ./auth_info_baileys
+        value: ./auth
 
       - key: MAX_DAILY_MESSAGES
         value: "100"

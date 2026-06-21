@@ -1,5 +1,9 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
+
+const config = require('./config/config');
 const WhatsAppClient = require('./core/whatsapp-client');
 const WebServer = require('./web/server');
 const Logger = require('./utils/logger');
@@ -13,13 +17,23 @@ async function main() {
     try {
         logger.info('🚀 Starting bot...');
 
+        // 🔥 FIX 1: créer dossier auth AVANT tout
+        const authPath = path.resolve(config.auth.path);
+
+        if (!fs.existsSync(authPath)) {
+            fs.mkdirSync(authPath, { recursive: true });
+            logger.info(`📁 Auth folder created: ${authPath}`);
+        }
+
+        // 🔥 start server
         server = new WebServer();
         await server.start();
 
+        // 🔥 start WhatsApp
         whatsapp = new WhatsAppClient(server.io);
         await whatsapp.initialize();
 
-        // 🔥 Graceful shutdown (Render / VPS safe)
+        // 🔥 Graceful shutdown
         const shutdown = async () => {
             logger.info('🛑 Shutting down...');
 

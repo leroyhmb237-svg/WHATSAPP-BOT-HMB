@@ -1,7 +1,7 @@
 const {
-default: makeWASocket,
-useMultiFileAuthState,
-DisconnectReason
+    default: makeWASocket,
+    useMultiFileAuthState,
+    DisconnectReason
 } = require('@whiskeysockets/baileys');
 
 const { Boom } = require('@hapi/boom');
@@ -22,185 +22,210 @@ const AntiDetect = require('../utils/anti-detect');
 const logger = new Logger('WhatsApp');
 
 class WhatsAppClient {
-constructor(io) {
-this.io = io;
-this.sock = null;
+    constructor(io) {
+        this.io = io;
+        this.sock = null;
 
-this.connected = false;
-this.attempts = 0;
-this.lockReconnect = false;
-this.initializing = false;
+        this.connected = false;
+        this.attempts = 0;
+        this.lockReconnect = false;
+        this.initializing = false;
 
-this.sessionManager = new SessionManager(config.auth.path);
-this.messageHandler = new MessageHandler();
-this.antiDelete = new AntiDeleteSystem(this.messageHandler);
-this.statusWatcher = new StatusWatcher(this);
+        this.sessionManager = new SessionManager(config.auth.path);
+        this.messageHandler = new MessageHandler();
+        this.antiDelete = new AntiDeleteSystem(this.messageHandler);
+        this.statusWatcher = new StatusWatcher(this);
 
-this.statusQueue = [];
-this.processing = false;
-}
-
-async initialize() {
-if (this.initializing) return;
-this.initializing = true;
-
-try {
-await this.cleanupSocket();
-
-// 🔥 FIX IMPORTANT: créer dossier auth si absent  
-if (!fs.existsSync(config.auth.path)) {  
-    fs.mkdirSync(config.auth.path, { recursive: true });  
-}  
-
-// ✅ AJOUT DEMANDÉ (AVANT useMultiFileAuthState)
-if (!fs.existsSync(config.auth.path)) {
-    fs.mkdirSync(config.auth.path, { recursive: true });
-}
-
-const { state, saveCreds } =
-    await useMultiFileAuthState(config.auth.path);
-
-this.sock = makeWASocket({
-    auth: state,
-    logger: Pino({ level: 'silent' }),
-
-    // 🔥 FIX stabilité WhatsApp Web  
-    browser: ['Ubuntu', 'Chrome', '22.0.0'],
-    markOnlineOnConnect: true,
-    syncFullHistory: false,
-    printQRInTerminal: false
-});
-
-this.sock.ev.on('creds.update', saveCreds);
-
-this.sock.ev.on('connection.update', (u) => this.handleConnection(u));
-
-this.sock.ev.on('messages.upsert', async (m) => {
-    await this.messageHandler.handle(m);
-
-    for (const msg of m.messages || []) {
-        this.queueStatus(msg);
+        this.statusQueue = [];
+        this.processing = false;
     }
-});
 
-this.sock.ev.on('messages.update', (u) => {
-    this.antiDelete.handle(u, this);
-});
+    async initialize() {
+        if (this.initializing) return;
 
-} catch (err) {
-logger.error(`Init error: ${err.message}`);
-} finally {
-this.initializing = false;
-}
-}
+        this.initializing = true;
 
-async cleanupSocket() {
-try {
-if (this.sock) {
-this.sock.ev?.removeAllListeners?.();
-this.sock.ws?.close?.();
-this.sock = null;
-}
-} catch (e) {
-logger.error(`Cleanup error: ${e.message}`);
-}
-}
+        try {
+            await this.cleanupSocket();
 
-async handleConnection(update) {
-const { connection, lastDisconnect, qr } = update;
+            if (!fs.existsSync(config.auth.path)) {
+                fs.mkdirSync(config.auth.path, { recursive: true });
+            }
 
-if (qr) {
-const img = await QRCode.toDataURL(qr);
-this.io?.emit('qr', img);
-logger.info('QR généré');
-}
+            const { state, saveCreds } =
+                await useMultiFileAuthState(config.auth.path);
 
-if (connection === 'open') {
-this.connected = true;
-this.attempts = 0;
-this.lockReconnect = false;
+            this.sock = makeWASocket({
+                auth: state,
+                logger: Pino({ level: 'silent' }),
 
-logger.success('WhatsApp connecté');
+                browser: ['Ubuntu', 'Chrome', '126.0.0'],
+                markOnlineOnConnect: true,
+                syncFullHistory: false,
+                printQRInTerminal: false
+            });
 
-await TelegramForwarder.notifyConnected();
-this.io?.emit('connected');
-}
+            this.sock.ev.on('creds.update', saveCreds);
 
-if (connection === 'close') {
-this.connected = false;
+            this.sock.ev.on(
+                'connection.update',
+                (update) => this.handleConnection(update)
+            );
 
-const statusCode =
-lastDisconnect?.error instanceof Boom
-? lastDisconnect.error.output.statusCode
-: lastDisconnect?.error?.output?.statusCode;
+            this.sock.ev.on('messages.upsert', async (m) => {
+                await this.messageHandler.handle(m);
 
-const errorMessage =
-lastDisconnect?.error?.message || lastDisconnect?.error;
+                for (const msg of m.messages || []) {
+                    this.queueStatus(msg);
+                }
+            });
 
-logger.error(`WhatsApp fermé | code=${statusCode}`);
-logger.error(`Cause: ${errorMessage}`);
+            this.sock.ev.on('messages.update', (update) => {
+                this.antiDelete.handle(update, this);
+            });
 
-await this.cleanupSocket();
+        } catch (err) {
+            logger.error(`Init error: ${err.message}`);
+        } finally {
+            this.initializing = false;
+        }
+    }
 
-const shouldReconnect =
-statusCode !== DisconnectReason.loggedOut &&
-this.attempts < 5 &&
-!this.lockReconnect;
+    async cleanupSocket() {
+        try {
+            if (this.sock) {
+                this.sock.ev?.removeAllListeners?.();
+                this.sock.ws?.close?.();
+                this.sock = null;
+            }
+        } catch (e) {
+            logger.error(`Cleanup error: ${e.message}`);
+        }
+    }
 
-if (!shouldReconnect) {
-logger.error('Reconnexion stoppée (loggedOut ou limite atteinte)');
-return;
-}
+    async handleConnection(update) {
+        const { connection, lastDisconnect, qr } = update;
 
-this.attempts++;
-this.lockReconnect = true;
+        if (qr) {
+            const img = await QRCode.toDataURL(qr);
 
-const delay = Math.min(30000, 5000 * this.attempts);
+            this.io?.emit('qr', img);
+            logger.info('QR généré');
+        }
 
-logger.warn(`Reconnexion dans ${delay / 1000}s`);
+        if (connection === 'open') {
+            this.connected = true;
+            this.attempts = 0;
+            this.lockReconnect = false;
 
-setTimeout(() => {
-this.lockReconnect = false;
-this.initialize();
-}, delay);
-}
-}
+            logger.success('WhatsApp connecté');
 
-queueStatus(msg) {
-if (msg.key.remoteJid !== 'status@broadcast') return;
+            await TelegramForwarder.notifyConnected();
 
-this.statusQueue.push(msg);
+            this.io?.emit('connected');
+        }
 
-if (!this.processing) this.processStatus();
-}
+        if (connection === 'close') {
+            this.connected = false;
 
-async processStatus() {
-this.processing = true;
+            const statusCode =
+                lastDisconnect?.error instanceof Boom
+                    ? lastDisconnect.error.output.statusCode
+                    : lastDisconnect?.error?.output?.statusCode;
 
-while (this.statusQueue.length) {
-const msg = this.statusQueue.shift();
-await this.statusWatcher.handle(msg);
-}
+            const errorMessage =
+                lastDisconnect?.error?.message ||
+                String(lastDisconnect?.error);
 
-this.processing = false;
-}
+            logger.error(`WhatsApp fermé | code=${statusCode}`);
+            logger.error(`Cause: ${errorMessage}`);
 
-async sendMessage(jid, text) {
-if (!this.connected || !this.sock) return;
-if (!AntiDetect.canPerformAction()) return;
+            await this.cleanupSocket();
 
-await AntiDetect.beforeReply();
+            const shouldReconnect =
+                statusCode !== DisconnectReason.loggedOut &&
+                this.attempts < 5 &&
+                !this.lockReconnect;
 
-return AntiDetect.simulateRealTyping(this.sock, jid, text);
-}
+            if (!shouldReconnect) {
+                logger.error(
+                    'Reconnexion stoppée (loggedOut ou limite atteinte)'
+                );
+                return;
+            }
 
-async disconnect() {
-try {
-await this.cleanupSocket();
-await this.sock?.logout?.();
-} catch {}
-}
+            this.attempts++;
+            this.lockReconnect = true;
 
+            const delay = Math.min(
+                30000,
+                this.attempts * 5000
+            );
+
+            logger.warn(
+                `Reconnexion dans ${delay / 1000}s`
+            );
+
+            setTimeout(() => {
+                this.lockReconnect = false;
+                this.initialize();
+            }, delay);
+        }
+    }
+
+    queueStatus(msg) {
+        if (msg?.key?.remoteJid !== 'status@broadcast') {
+            return;
+        }
+
+        this.statusQueue.push(msg);
+
+        if (!this.processing) {
+            this.processStatus();
+        }
+    }
+
+    async processStatus() {
+        this.processing = true;
+
+        while (this.statusQueue.length) {
+            const msg = this.statusQueue.shift();
+
+            await this.statusWatcher.handle(msg);
+        }
+
+        this.processing = false;
+    }
+
+    async sendMessage(jid, text) {
+        if (!this.connected || !this.sock) {
+            return;
+        }
+
+        if (!AntiDetect.canPerformAction()) {
+            return;
+        }
+
+        await AntiDetect.beforeReply();
+
+        return AntiDetect.simulateRealTyping(
+            this.sock,
+            jid,
+            text
+        );
+    }
+
+    async disconnect() {
+        try {
+            if (this.sock) {
+                await this.sock.logout();
+            }
+
+            await this.cleanupSocket();
+        } catch (e) {
+            logger.error(`Disconnect error: ${e.message}`);
+        }
+    }
 }
 
 module.exports = WhatsAppClient;

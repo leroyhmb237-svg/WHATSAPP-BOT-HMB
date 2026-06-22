@@ -57,9 +57,9 @@ class WhatsAppClient {
 
             this.sock = makeWASocket({
                 auth: state,
-                logger: Pino({ level: 'silent' }),
+                logger: Pino({ level: 'debug' }),
 
-                browser: ['Ubuntu', 'Chrome', '126.0.0'],
+                browser: ['Chrome', 'Chrome', '1.0.0'],
                 markOnlineOnConnect: true,
                 syncFullHistory: false,
                 printQRInTerminal: false
@@ -138,13 +138,18 @@ class WhatsAppClient {
                 String(lastDisconnect?.error);
 
             logger.error(`WhatsApp fermé | code=${statusCode}`);
+
+            console.log('==========================');
+            console.log('LAST DISCONNECT');
+            console.dir(lastDisconnect, { depth: null });
+            console.log('==========================');
+
             logger.error(`Cause: ${errorMessage}`);
 
             await this.cleanupSocket();
 
             const shouldReconnect =
-                statusCode !== DisconnectReason.loggedOut &&
-                this.attempts < 5 &&
+                this.attempts < 10 &&
                 !this.lockReconnect;
 
             if (!shouldReconnect) {

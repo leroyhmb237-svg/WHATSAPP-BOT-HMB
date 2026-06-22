@@ -21,7 +21,7 @@ const config = {
     auth: {
         // IMPORTANT FIX: Render ne garde pas les fichiers locaux longtemps
         // mais Baileys a besoin d'un dossier persistant
-        path: process.env.AUTH_PATH || './auth_info_baileys'
+        path: './auth_info_baileys'
     },
 
     limits: {

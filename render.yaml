@@ -14,9 +14,6 @@ services:
         value: production
 
       # ✅ FIX IMPORTANT (DOIT MATCHER TON CODE)
-      - key: AUTH_PATH
-        value: /tmp/whatsapp_auth
-
       - key: MAX_DAILY_MESSAGES
         value: "100"
 
